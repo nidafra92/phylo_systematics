@@ -6,6 +6,7 @@ import sys, os
 from optparse import OptionParser
 from Bio import SeqIO
 from Bio.Alphabet import IUPAC
+import subprocess
 
 exe_path = os.path.split(os.path.abspath(sys.argv[0]))[0]
 sys.path.insert(0,os.path.abspath(os.path.join(exe_path,"..", "..")))
@@ -99,14 +100,45 @@ def fasta2nexus(fasta_filename, location):
         SeqIO.write(new_seqs, nexus, "nexus")
     return nex_filename
 
-def garliconf_gen():
-    pass
+def garliconf_gen(formatted_models, nexus_name, location):
+    base_conf = "[general]\ndatafname = {0}\nconstraintfile = none\nstreefname = stepwise\nattachmentspertaxon = 50\nofprefix = {1}\nrandseed = -1\navailablememory = 512\nlogevery = 10\nsaveevery = 100\nrefinestart = 1\noutputeachbettertopology = 0\noutputcurrentbesttopology = 0\nenforcetermconditions = 1\ngenthreshfortopoterm = 20000\nscorethreshforterm = 0.05\nsignificanttopochange = 0.01\noutputphyliptree = 0\noutputmostlyuselessfiles = 0\nwritecheckpoints = 0\nrestart = 0\noutgroup = 1\nresampleproportion = 1.0\ninferinternalstateprobs = 0\noutputsitelikelihoods = 0\noptimizeinputonly = 0\ncollapsebranches = 1\n\nsearchreps = 1\nbootstrapreps = 0\n\n[model1]\n{2}\n\n"
+    master = "[master]\nnindivs = 4\nholdover = 1\nselectionintensity = 0.5\nholdoverpenalty = 0\nstopgen = 5000000\nstoptime = 5000000\n\nstartoptprec = 0.5\nminoptprec = 0.01\nnumberofprecreductions = 10\ntreerejectionthreshold = 50.0\ntopoweight = 1.0\nmodweight = 0.05\nbrlenweight = 0.2\nrandnniweight = 0.1\nrandsprweight = 0.3\nlimsprweight =  0.6\nintervallength = 100\nintervalstostore = 5\nlimsprrange = 6\nmeanbrlenmuts = 5\ngammashapebrlen = 1000\ngammashapemodel = 1000\nuniqueswapbias = 0.1\ndistanceswapbias = 1.0"
+    likelihood_dict = {}
+    for model, model_block in formatted_models.items():
+        conf_name = model + ".conf"
+        with open(os.path.join(location,conf_name), "a") as conf_file:
+            conf_string = base_conf.format(nexus_name, model, model_block) + master
+            conf_file.write(conf_string)
+        print("Generated Garli config file for {} model".format(model))
+        likelihood_dict[conf_name] = 0
+    return likelihood_dict
+
+def run_garli(path_to_conf):
+    garli_out = subprocess.check_output(["Garli", path_to_conf])
+    return garli_out
+
 
 #print(exe_path)
 
+print("Input file: {} in format FASTA".format(original_fasta))
+print("Creating temporary dir named: {}".format(temp_directory))
 os.mkdir(temp_directory)
 
 #print(os.path.join(temp_directory, original_fasta.replace(".fasta",".nexus")))
-
+print("Converting FASTA file to NEXUS file format")
 nexus_filename = fasta2nexus(original_fasta, temp_directory)
-print(nexus_filename)
+print("NEXUS file written to {}".format(nexus_filename))
+
+print("Reading model list from {}".format(model_file))
+model_dictionary = model_reader(model_file)
+
+print("Generating Garli conf files for specified models")
+
+likelihood_init = garliconf_gen(model_dictionary, nexus_filename, temp_directory)
+
+print("\n\nTESTING\n")
+model = "JC.conf"
+
+example_path = os.path.join(temp_directory, model)
+
+print(run_garli(example_path))
