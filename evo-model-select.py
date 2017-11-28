@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 description = \
 """
-    
+
     %prog --fasta_file FASTA --model_list MODEL_LIST
 
     Code for a simple model tester for ML analysis using Garli for
@@ -35,6 +35,7 @@ from Bio.Alphabet import IUPAC
 import subprocess
 import time
 from datetime import timedelta
+from multiprocessing.dummy import Pool as ThreadPool
 
 start_time = time.monotonic() # I want to record execution time.
 
@@ -55,10 +56,10 @@ parser.add_option("-m", "--model_list", dest="model_list",
                     #default="all",
                     help="Name and path of file contanining models to be \
                     tested.")
-parser.add_option("--result_file", dest="result_file",
+parser.add_option("-o", "--result_file", dest="result_file",
                     metavar="FILE",
                     type="string",
-                    default="final.phylo_results",
+                    default="final.phylo_results.tab",
                     help="Name and path of where the files should end up. ")
 parser.add_option("-t", "--temp_directory", dest="temp_directory",
                     metavar="PATH",
@@ -74,6 +75,8 @@ parser.add_option("-j", "--jobs", dest="jobs",
                     in parallel.")
 
 (options, remaining_args) = parser.parse_args()
+
+jobs = options.jobs
 
 if not options.fasta_file:
     parser.error("\n\n\tMissing parameter --fasta_file FILE\n\n")
@@ -126,7 +129,7 @@ def model_reader(model_file):
     with open(model_file) as models:
         model_count = len(models.readlines())
     print("A total of {} DNA evolution models to be \
-            processed.".format(model_count))
+processed.".format(model_count))
     with open(model_file) as models:
         for model in models:
             model = model.strip()
@@ -165,8 +168,8 @@ def garliconf_gen(formatted_models, nexus_name, location):
             conf_string = base_conf.format(nexus_name, model, model_block) + \
             master
             conf_file.write(conf_string)
-        print("Generated Garli config file for {0} model \
-                ({1}/{2})".format(model, counter, num_models))
+        print("Generated Garli config file for {0} model ({1}/{2})"
+                .format(model, counter, num_models))
         likelihood_dict[conf_name] = 0
     return likelihood_dict
 
@@ -188,6 +191,26 @@ def compute_likelihoods(model_dict):
                 model.replace(".conf","")))
     return model_dict
 
+def compute_likelihood(model, counter, num_models):
+    print("Computing tree with for {0}. ({1}/{2})".format(model, counter,
+            num_models))
+    garli_stdout, garli_stderr = run_cmd(['Garli',model], temp_directory)
+    likelihood_score = get_likelihood(garli_stdout)
+    print("Likelihood value of {0} for {1}".format(str(likelihood_score),
+            model.replace(".conf","")))
+    return model, likelihood_score
+
+def calculateParallel(model_dict, threads=jobs):
+    counter_dict = range(1, len(model_dict) + 1)
+    total_dict = [len(model_dict) for i in range(len(model_dict))]
+    pool = ThreadPool(threads)
+    likelihoods = pool.map(compute_likelihood, model_dict.keys(), counter_dict, total_dict)
+    pool.close()
+    pool.join()
+    likelihood_dict = {}
+    for pair in likelihoods:
+        likelihood_dict[pair[0]] = pair[1]
+    return likelihood_dict
 
 def write_results(final_scores, result_file):
     print("Writting results to {}.".format(result_file))
@@ -214,8 +237,8 @@ print("Converting FASTA file to NEXUS file format")
 nexus_filename, ntax, nchars = fasta2nexus(original_fasta, temp_directory)
 print("NEXUS file written to {}".format(nexus_filename))
 
-print("Processed a NEXUS file containing {0} taxa and {1} \
-        chars.\n".format(ntax, nchars))
+print("Processed a NEXUS file containing {0} taxa and {1} chars.\n"
+        .format(ntax, nchars))
 
 print("Reading model list from {}".format(model_file))
 model_dictionary = model_reader(model_file)
@@ -225,10 +248,12 @@ print("Generating Garli conf files for specified models")
 likelihood_init = garliconf_gen(model_dictionary, nexus_filename,
         temp_directory)
 
-print("\n\nComputing likelihood scores for {} \
-        models...\n".format(len(likelihood_init)))
+print("\n\nComputing likelihood scores for {} models...\n"
+        .format(len(likelihood_init)))
 
-likelihood_scores = compute_likelihoods(likelihood_init)
+#likelihood_scores = compute_likelihoods(likelihood_init)
+
+likelihood_scores = calculateParallel(likelihood_init)
 
 print("\nLikelihood calculations completed!\n")
 
