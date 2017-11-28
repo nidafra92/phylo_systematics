@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+version = "1.0.1" #parallel features
 description = \
 """
 
@@ -7,7 +8,7 @@ description = \
     Code for a simple model tester for ML analysis using Garli for
     likelihood calculations.
 
-    version 1.0
+    version {}
     by Nicolás D. Franco-Sierra
 
     Expected inputs:
@@ -25,7 +26,7 @@ description = \
     What it does? it creates the proper garli.conf file and performs a
     search with 1 rep for each model. Then it gets the likelihood
     score for the search.
-"""
+""".format(version)
 
 #imports
 import sys, os
@@ -44,7 +45,7 @@ exe_path = os.path.split(os.path.abspath(sys.argv[0]))[0]
 sys.path.insert(0,os.path.abspath(os.path.join(exe_path,"..", "..")))
 exe_path = os.path.split(os.path.abspath(sys.argv[0]))[0]
 
-parser = OptionParser(version="%prog 1.0",
+parser = OptionParser(version="%prog {}".format(version),
             usage = description)
 parser.add_option("-f", "--fasta_file", dest="fasta_file",
                     metavar="FILE",
@@ -85,7 +86,12 @@ if not options.model_list:
 
 def run_cmd(cmd_str, work_path=None):
     """
-    Throw exception if run command fails
+    This helper function excecute a bash command as a separate process
+    and returns and expection if the command fails.
+
+    It returns the standart output and the standard error of the command as
+    str objects.
+
     """
     process = subprocess.Popen(cmd_str, stdout = subprocess.PIPE, stderr =
     subprocess.PIPE, cwd=work_path)
@@ -99,6 +105,12 @@ def run_cmd(cmd_str, work_path=None):
 def model_parser(model_string):
     """
     Parses a model string to the equivalent command block for Garli
+    e.g. converts "GTR+I+G" to: "ratematrix = 6rate
+                                 statefrequencies = estimate
+                                 ratehetmodel = gamma
+                                 numratecats = 4
+                                 invariantsites = estimate"
+
     """
     #define equivalencies in dictionaries
     model_dict = {"GTR":"ratematrix = 6rate\nstatefrequencies = estimate\n",
@@ -123,7 +135,10 @@ def model_parser(model_string):
 
 def model_reader(model_file):
     """
-    Reads a model file list and returns models with commands
+    Reads a model file list and returns models with commands.
+    It opens the file and retrieve a dictionary with the model
+    names paired to their respective command block for Garli
+
     """
     models_to_eval = {}
     with open(model_file) as models:
@@ -138,10 +153,27 @@ processed.".format(model_count))
     return models_to_eval
 
 def name_reformat(name):
+    """
+    This is a helper function to reformat FASTA headers from sequences
+    retrieved from GenBank
+    e.g.
+    It converts headers of the form: gi|984656999|gb|KU593393.1| Turdus ignobilis voucher AMNH:DOT4802 glyceraldehyde-3-phosphate dehydrogenase (G3PDH) gene, partial cds
+    To safe sequence names such as: 'Turdus_ignobilis_voucher_AMNH:DOT4802'
+
+    """
     safe_name = "_".join(name.split("|")[-1].split()[0:4])
     return safe_name
 
 def fasta2nexus(fasta_filename, location):
+    """
+    This helper function takes a filename corresponding to a FASTA file (must
+    have the ".fasta" extension) and opens the file to transform it to NEXUS
+    format using BioPython utilities.
+    The function returns a a tuple containing the followinf info:
+    (filename_of_the_new_NEXUS_file, number_of_taxa_in_file, number_of_chars
+    _in_the_alignment)
+
+    """
     nex_filename = fasta_filename.replace("fasta", "nexus")
     with open(fasta_filename) as fasta, open(os.path.join(location,
         nex_filename),"a") as nexus:
@@ -157,6 +189,19 @@ def fasta2nexus(fasta_filename, location):
     return nex_filename, ntax, nchars
 
 def garliconf_gen(formatted_models, nexus_name, location):
+    """
+    This function takes dict of models (from model_reader function), NEXUS
+    filename (from fasta2nexus function) and a path to write Garli conf files.
+
+    It composes the appropiate number of Garli configurations files (one per
+    model) in the specified folder (in location). The conf file searchreps
+    parameter is always 1 because we only want to calculate the likelihood for
+    our dataset given certain evolution model.
+
+    This function outputs a initial likelihood dict with model names as keys
+    and 0 likelihood for values.
+
+    """
     num_models = len(formatted_models)
     base_conf = "[general]\ndatafname = {0}\nconstraintfile = none\nstreefname = stepwise\nattachmentspertaxon = 50\nofprefix = {1}\nrandseed = -1\navailablememory = 512\nlogevery = 10\nsaveevery = 100\nrefinestart = 1\noutputeachbettertopology = 0\noutputcurrentbesttopology = 0\nenforcetermconditions = 1\ngenthreshfortopoterm = 20000\nscorethreshforterm = 0.05\nsignificanttopochange = 0.01\noutputphyliptree = 0\noutputmostlyuselessfiles = 0\nwritecheckpoints = 0\nrestart = 0\noutgroup = 1\nresampleproportion = 1.0\ninferinternalstateprobs = 0\noutputsitelikelihoods = 0\noptimizeinputonly = 0\ncollapsebranches = 1\n\nsearchreps = 1\nbootstrapreps = 0\n\n[model1]\n{2}\n\n"
     master = "[master]\nnindivs = 4\nholdover = 1\nselectionintensity = 0.5\nholdoverpenalty = 0\nstopgen = 5000000\nstoptime = 5000000\n\nstartoptprec = 0.5\nminoptprec = 0.01\nnumberofprecreductions = 10\ntreerejectionthreshold = 50.0\ntopoweight = 1.0\nmodweight = 0.05\nbrlenweight = 0.2\nrandnniweight = 0.1\nrandsprweight = 0.3\nlimsprweight =  0.6\nintervallength = 100\nintervalstostore = 5\nlimsprrange = 6\nmeanbrlenmuts = 5\ngammashapebrlen = 1000\ngammashapemodel = 1000\nuniqueswapbias = 0.1\ndistanceswapbias = 1.0"
@@ -175,23 +220,42 @@ def garliconf_gen(formatted_models, nexus_name, location):
 
 
 def get_likelihood(garli_stdout):
+    """
+    This helper function takes a stdout from a Garli run and properly extracts
+    the likelihood value of the first (and only) search replicate in the run.
+    It outputs the likelihood value as a float.
+
+    """
     likelihood = float(garli_stdout.partition("Results:\nReplicate 1 : ")[2]
                     .partition("\n\nParameter estimates:")[0])
     return likelihood
 
-def compute_likelihoods(model_dict):
-    num_models = len(model_dict)
-    for counter, model in zip(range(1, num_models + 1), model_dict):
-        print("Computing tree with for {0}. ({1}/{2})".format(model, counter,
-                num_models))
-        garli_stdout, garli_stderr = run_cmd(['Garli',model], temp_directory)
-        likelihood_score = get_likelihood(garli_stdout)
-        model_dict[model] = likelihood_score
-        print("Likelihood value of {0} for {1}".format(str(likelihood_score),
-                model.replace(".conf","")))
-    return model_dict
+# def compute_likelihoods(model_dict):
+#    """
+#    This function was intended to calculate all likelihoods in Garli from
+#    a model dict. I commented out this function because it was written as a
+#    serial task (slower)
+#    """
+#     num_models = len(model_dict)
+#     for counter, model in zip(range(1, num_models + 1), model_dict):
+#         print("Computing tree with for {0}. ({1}/{2})".format(model, counter,
+#                 num_models))
+#         garli_stdout, garli_stderr = run_cmd(['Garli',model], temp_directory)
+#         likelihood_score = get_likelihood(garli_stdout)
+#         model_dict[model] = likelihood_score
+#         print("Likelihood value of {0} for {1}".format(str(likelihood_score),
+#                 model.replace(".conf","")))
+#     return model_dict
 
-def compute_likelihood(model, counter, num_models):
+def compute_likelihood(input_tuple):
+    """
+    This function recieves a tuple containing three arguments (model name,
+    number of task, total of tasks)
+    It runs Garli from the proper conf file and outputs a tuple of model name
+    and computed likelihood score using the previously defined helper functions
+
+    """
+    model, counter, num_models = input_tuple
     print("Computing tree with for {0}. ({1}/{2})".format(model, counter,
             num_models))
     garli_stdout, garli_stderr = run_cmd(['Garli',model], temp_directory)
@@ -201,10 +265,19 @@ def compute_likelihood(model, counter, num_models):
     return model, likelihood_score
 
 def calculateParallel(model_dict, threads=jobs):
+    """
+    This function excecute all Garli runs in parallel given the number of
+    threads defined in --jobs option.
+
+    This function returns a full likelihoods dict (containing likelihood scores
+    ) from a init likelihood dict (output from garliconf_gen function).
+
+    """
+    print("Computing using {} threads.".format(str(threads)))
     counter_dict = range(1, len(model_dict) + 1)
     total_dict = [len(model_dict) for i in range(len(model_dict))]
     pool = ThreadPool(threads)
-    likelihoods = pool.map(compute_likelihood, model_dict.keys(), counter_dict, total_dict)
+    likelihoods = pool.map(compute_likelihood, zip(model_dict.keys(), counter_dict, total_dict))
     pool.close()
     pool.join()
     likelihood_dict = {}
@@ -213,6 +286,15 @@ def calculateParallel(model_dict, threads=jobs):
     return likelihood_dict
 
 def write_results(final_scores, result_file):
+    """
+    This function takes final_scores from calculateParallel function and saved
+    them in a file (defined by --result_file option).
+
+    This file is separated by tabs and it is of the form of:
+
+    MODEL_NAME  LIKELIHOOD_SCORE
+
+    """
     print("Writting results to {}.".format(result_file))
     with open(result_file, "a") as output_file:
         for model, score in final_scores.items():
@@ -221,12 +303,14 @@ def write_results(final_scores, result_file):
             output_file.write((result_string))
     return "File saved!"
 
+#get argvs from flags
 
 original_fasta = options.fasta_file
 model_file  = options.model_list
 temp_directory = options.temp_directory
 result_file    = options.result_file
 
+#run the program using the functions defined above
 
 print("\nInput file: {} in format FASTA".format(original_fasta))
 print("Creating temporary dir named: {}\n".format(temp_directory))
@@ -251,8 +335,6 @@ likelihood_init = garliconf_gen(model_dictionary, nexus_filename,
 print("\n\nComputing likelihood scores for {} models...\n"
         .format(len(likelihood_init)))
 
-#likelihood_scores = compute_likelihoods(likelihood_init)
-
 likelihood_scores = calculateParallel(likelihood_init)
 
 print("\nLikelihood calculations completed!\n")
@@ -261,8 +343,9 @@ print(write_results(likelihood_scores, result_file))
 
 print("Done!\n")
 
+#calculate execution time
 end_time = time.monotonic()
 time_delta = str(timedelta(seconds=end_time - start_time))
 
 print("Task completed in: {}".format(time_delta))
-print("... plus 5 hours of coding! >.< ")
+print("... plus 7.5 hours of coding! >.< ")
