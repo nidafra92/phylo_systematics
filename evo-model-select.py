@@ -37,6 +37,7 @@ import subprocess
 import time
 from datetime import timedelta
 from multiprocessing.dummy import Pool as ThreadPool
+import math
 
 start_time = time.monotonic() # I want to record execution time.
 
@@ -255,16 +256,23 @@ def compute_likelihood(input_tuple):
     and computed likelihood score using the previously defined helper functions
 
     """
-    model, counter, num_models = input_tuple
+    model, counter, num_models, ntax, nchars = input_tuple
     print("Computing tree with for {0}. ({1}/{2})".format(model, counter,
             num_models))
     garli_stdout, garli_stderr = run_cmd(['Garli',model], temp_directory)
     likelihood_score = get_likelihood(garli_stdout)
+    k = compute_k(model, ntax)
+    aic_score = compute_aic(likelihood_score, k)
+    bic_score = compute_bic(likelihood_score, k, nchars)
     print("Likelihood value of {0} for {1}".format(str(likelihood_score),
             model.replace(".conf","")))
-    return model, likelihood_score
+    print("AIC value of {0} for {1}".format(str(aic_score),
+            model.replace(".conf","")))
+    print("BIC value of {0} for {1}".format(str(bic_score),
+            model.replace(".conf","")))
+    return model, likelihood_score, aic_score, bic_score
 
-def calculateParallel(model_dict, threads=jobs):
+def calculateParallel(model_dict, ntax, nchars, threads=jobs):
     """
     This function excecute all Garli runs in parallel given the number of
     threads defined in --jobs option.
@@ -274,15 +282,18 @@ def calculateParallel(model_dict, threads=jobs):
 
     """
     print("Computing using {} threads.".format(str(threads)))
-    counter_dict = range(1, len(model_dict) + 1)
-    total_dict = [len(model_dict) for i in range(len(model_dict))]
+    num_models = len(model_dict)
+    counter_list = range(1, num_models + 1)
+    total_task_list = [num_models] * num_models
+    ntax_list = [ntax] * num_models
+    nchars_list = [nchars] * num_models
     pool = ThreadPool(threads)
-    likelihoods = pool.map(compute_likelihood, zip(model_dict.keys(), counter_dict, total_dict))
+    likelihoods = pool.map(compute_likelihood, zip(model_dict.keys(), counter_list, total_task_list, ntax_list, nchars_list))
     pool.close()
     pool.join()
     likelihood_dict = {}
-    for pair in likelihoods:
-        likelihood_dict[pair[0]] = pair[1]
+    for model, likelihood, aic, bic in likelihoods:
+        likelihood_dict[model] = [likelihood, aic, bic]
     return likelihood_dict
 
 def write_results(final_scores, result_file):
@@ -292,16 +303,39 @@ def write_results(final_scores, result_file):
 
     This file is separated by tabs and it is of the form of:
 
-    MODEL_NAME  LIKELIHOOD_SCORE
+    MODEL_NAME  LIKELIHOOD_SCORE AIC_SCORE BIC_SCORE
 
     """
     print("Writting results to {}.".format(result_file))
     with open(result_file, "a") as output_file:
-        for model, score in final_scores.items():
+        header = "model\t-log(L)\tAIC\tBIC\n"
+        output_file.write(header)
+        for model, scores in final_scores.items():
+            l_score, aic_score, bic_score = scores
             result_string = \
-            "{0}\t{1}\n".format(model.replace(".conf",""),str(score))
+            "{0}\t{1}\t{2}\t{3}\n".format(model.replace(".conf",""),
+            str(l_score), str(aic_score), str(bic_score))
             output_file.write((result_string))
     return "File saved!"
+
+def compute_k(model_string, ntax):
+    params_per_model = {"GTR":8, "SYM":5, "HKY":4, "K80":1, "F81":3,
+                        "JC":0}
+    model_info = model_string.replace(".conf","").split("+")
+    model_name = model_info[0]
+    inv_status = 1 if "I" in model_info else False
+    gamma_status = 1 if "G" in model_info else False
+    n_branches = ntax * 2 - 3
+    k = params_per_model[model_name] + inv_status + gamma_status + n_branches
+    return k
+
+def compute_aic(likelihood, k):
+    aic = -2 * likelihood + 2 * k
+    return aic
+
+def compute_bic(likelihood, k, nchars):
+    bic = -2 * likelihood + k * math.log(nchars)
+    return bic
 
 #get argvs from flags
 
@@ -335,7 +369,7 @@ likelihood_init = garliconf_gen(model_dictionary, nexus_filename,
 print("\n\nComputing likelihood scores for {} models...\n"
         .format(len(likelihood_init)))
 
-likelihood_scores = calculateParallel(likelihood_init)
+likelihood_scores = calculateParallel(likelihood_init, ntax, nchars)
 
 print("\nLikelihood calculations completed!\n")
 
@@ -348,4 +382,4 @@ end_time = time.monotonic()
 time_delta = str(timedelta(seconds=end_time - start_time))
 
 print("Task completed in: {}".format(time_delta))
-print("... plus 7.5 hours of coding! >.< ")
+print("... plus 8 hours of coding! >.< ")
