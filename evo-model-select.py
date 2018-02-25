@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-version = "1.0.1" #parallel features
+version = "1.2.0" #Model selection by AIC and BIC implemented
 description = \
 """
 
@@ -20,12 +20,11 @@ description = \
                                 K80+G)
     Invariant sites and gamma distributions are supported.
 
-    Output: a tab separated file table containing likelihood scores for
-    each requested model
+    Output: a tab separated file table containing likelihood, AIC, and BIC final_scores for each requested model.
 
     What it does? it creates the proper garli.conf file and performs a
     search with 1 rep for each model. Then it gets the likelihood
-    score for the search.
+    score of the search. It also computes AIC and BIC scores for each model.
 """.format(version)
 
 #imports
