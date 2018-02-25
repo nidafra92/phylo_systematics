@@ -264,11 +264,11 @@ def compute_likelihood(input_tuple):
     k = compute_k(model, ntax)
     aic_score = compute_aic(likelihood_score, k)
     bic_score = compute_bic(likelihood_score, k, nchars)
-    print("Likelihood value of {0} for {1}".format(str(likelihood_score),
+    print("Likelihood value of {:.2f} for {}".format(likelihood_score,
             model.replace(".conf","")))
-    print("AIC value of {0} for {1}".format(str(aic_score),
+    print("AIC value of {:.2f} for {}".format(aic_score,
             model.replace(".conf","")))
-    print("BIC value of {0} for {1}".format(str(bic_score),
+    print("BIC value of {:.2f} for {}".format(bic_score,
             model.replace(".conf","")))
     return model, likelihood_score, aic_score, bic_score
 
@@ -292,8 +292,23 @@ def calculateParallel(model_dict, ntax, nchars, threads=jobs):
     pool.close()
     pool.join()
     likelihood_dict = {}
+    best_l_pair = ["no model", -math.inf]
+    best_aic_pair = ["no model", math.inf]
+    best_bic_pair = ["no model", math.inf]
     for model, likelihood, aic, bic in likelihoods:
         likelihood_dict[model] = [likelihood, aic, bic]
+        if likelihood > best_l_pair[1]:
+            best_l_pair[0] = model
+            best_l_pair[1] = likelihood
+        if bic < best_bic_pair[1]:
+            best_bic_pair[0] = model
+            best_bic_pair[1] = bic
+        if aic < best_aic_pair[1]:
+            best_aic_pair[0] = model
+            best_aic_pair[1] = aic
+    print("\nModel with highest likelihood score is {}!".format(best_l_pair[0]))
+    print("Best model selected according AIC is {}!".format(best_aic_pair[0]))
+    print("Best model selected according BIC is {}!".format(best_aic_pair[0]))
     return likelihood_dict
 
 def write_results(final_scores, result_file):
@@ -313,8 +328,8 @@ def write_results(final_scores, result_file):
         for model, scores in final_scores.items():
             l_score, aic_score, bic_score = scores
             result_string = \
-            "{0}\t{1}\t{2}\t{3}\n".format(model.replace(".conf",""),
-            str(l_score), str(aic_score), str(bic_score))
+            "{}\t{:.2f}\t{:.2f}\t{:.2f}\n".format(model.replace(".conf",""),
+            l_score, aic_score, bic_score)
             output_file.write((result_string))
     return "File saved!"
 
@@ -371,7 +386,7 @@ print("\n\nComputing likelihood scores for {} models...\n"
 
 likelihood_scores = calculateParallel(likelihood_init, ntax, nchars)
 
-print("\nLikelihood calculations completed!\n")
+print("\nLikelihood & information criteria calculations completed!\n")
 
 print(write_results(likelihood_scores, result_file))
 
